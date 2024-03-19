@@ -1,13 +1,10 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
 use defmt_rtt as _;
-use embedded_hal::digital::v2::OutputPin;
 use panic_probe as _;
 
 use seeeduino_xiao_rp2040 as bsp;
-use bsp::entry;
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
     pac,
@@ -15,54 +12,79 @@ use bsp::hal::{
     watchdog::Watchdog,
 };
 
-#[entry]
-fn main() -> ! {
-    info!("Program start");
-    let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
-    let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let sio = Sio::new(pac.SIO);
+#[rtic::app(device = bsp::pac, peripherals = true, dispatchers = [TIMER_IRQ_0, SW0_IRQ])]
+mod app {
+    use fugit::ExtU64;
+    use embedded_hal::digital::v2::OutputPin;
+    use rtic_monotonics::rp2040;
+    use seeeduino_xiao_rp2040 as bsp;
+    use bsp::hal::{
+        clocks::{init_clocks_and_plls, Clock}, gpio::{Pin, PushPullOutput}, pac, sio::Sio, watchdog::Watchdog
+    };
 
-    // External high-speed crystal on the pico board is 12Mhz
-    let external_xtal_freq_hz = 12_000_000u32;
-    let clocks = init_clocks_and_plls(
-        external_xtal_freq_hz,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .ok()
-    .unwrap();
 
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    #[shared]
+    struct Shared {
+    }
 
-    let pins = bsp::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
-    );
+    #[local]
+    struct Local {
+        led_green: Pin<bsp::hal::gpio::bank0::Gpio16, bsp::hal::gpio::PushPullOutput>
+    }
 
-    // This is the correct pin on the Raspberry Pico board. On other boards, even if they have an
-    // on-board LED, it might need to be changed.
-    //
-    // Notably, on the Pico W, the LED is not connected to any of the RP2040 GPIOs but to the cyw43 module instead.
-    // One way to do that is by using [embassy](https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/wifi_blinky.rs)
-    //
-    // If you have a Pico W and want to toggle a LED with a simple GPIO output pin, you can connect an external
-    // LED to one of the GPIO pins, and reference that pin here. Don't forget adding an appropriate resistor
-    // in series with the LED.
-    let mut led_pin = pins.led_green.into_push_pull_output();
 
-    loop {
-        info!("on!");
-        led_pin.set_high().unwrap();
-        delay.delay_ms(500);
-        info!("off!");
-        led_pin.set_low().unwrap();
-        delay.delay_ms(500);
+    #[init]
+    fn init(mut cx: init::Context) -> (Shared, Local) {
+        defmt::info!("Hello, world!");
+        let mut pac = cx.device;
+        let mut watchdog = Watchdog::new(pac.WATCHDOG);
+        let sio = Sio::new(pac.SIO);
+
+        defmt::info!("initializing clocks...");
+        let clocks = init_clocks_and_plls(
+            bsp::XOSC_CRYSTAL_FREQ,
+            pac.XOSC,
+            pac.CLOCKS,
+            pac.PLL_SYS,
+            pac.PLL_USB,
+            &mut pac.RESETS,
+            &mut watchdog,
+        ).ok().unwrap();
+
+        defmt::info!("initializing pins...");
+        let pins = bsp::Pins::new(
+            pac.IO_BANK0,
+            pac.PADS_BANK0,
+            sio.gpio_bank0,
+            &mut pac.RESETS,
+        );
+        
+        defmt::info!("initializing timer...");
+        rp2040::Timer::start(pac.TIMER, &mut pac.RESETS, rtic_monotonics::create_rp2040_monotonic_token!());
+
+        defmt::info!("initializing led...");
+        let led_green = pins.led_green.into_push_pull_output();
+
+        defmt::info!("spawning tasks...");
+        led::spawn().unwrap();
+        
+        defmt::info!("intialization complete!");
+        (Shared { }, Local { led_green })
+    }
+    
+    #[task(local = [led_green])]
+    async fn led(cx: led::Context) {
+        defmt::info!("blink led!");
+
+        let led_green = cx.local.led_green;
+
+        loop {
+            defmt::info!("on!");
+            led_green.set_high().unwrap();
+            rp2040::Timer::delay(500u64.millis()).await;
+            defmt::info!("off!");
+            led_green.set_low().unwrap();
+            rp2040::Timer::delay(500u64.millis()).await;
+        }
     }
 }
