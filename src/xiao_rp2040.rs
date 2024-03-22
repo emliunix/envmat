@@ -4,7 +4,6 @@ extern crate cortex_m_rt;
 
 /// The linker will place this boot block at the start of our program image. We
 /// need this to help the ROM bootloader get our code up and running.
-#[cfg(feature = "boot2")]
 #[link_section = ".boot2"]
 #[no_mangle]
 #[used]
