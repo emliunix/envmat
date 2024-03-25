@@ -22,6 +22,9 @@ impl Timer {
 
         unsafe {
         //     rtic_monotonics::set_monotonic_prio(rp2040_pac::NVIC_PRIO_BITS, Interrupt::TIMER_IRQ_0);
+            let mut nvic: rp2040_hal::pac::NVIC = core::mem::transmute(());
+            // nvic.set_priority(Interrupt::TIMER_IRQ_0, rp2040_hal::pac::NVIC_PRIO_BITS);
+            nvic.set_priority(Interrupt::TIMER_IRQ_0, 0);
             NVIC::unmask(Interrupt::TIMER_IRQ_0);
         }
     }
@@ -128,3 +131,14 @@ impl Monotonic for Timer {
 // rtic_time::embedded_hal_delay_impl_fugit64!(Timer);
 
 // rtic_time::embedded_hal_async_delay_impl_fugit64!(Timer);
+
+#[macro_export]
+macro_rules! create_rp2040_monotonic_token {
+    () => {{
+        #[no_mangle]
+        #[allow(non_snake_case)]
+        unsafe extern "C" fn TIMER_IRQ_0() {
+            $crate::rp2040_monotonics::Timer::__tq().on_monotonic_interrupt();
+        }
+    }};
+}
