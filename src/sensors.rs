@@ -17,8 +17,8 @@ where
 {
     Sht40Command::MeasureHighRepeatability.send(i2c, addr)?;
     let data = sht40_read_data_with_retry::<6, _, _, T>(i2c, addr).await?;
-    let tmpr = -45.0 + 175.0 * f32::from(u16::from_be_bytes([data[0], data[1]]) as f32 / 65535.0);
-    let humi = 100.0 * f32::from(u16::from_be_bytes([data[3], data[4]]) as f32 / 65535.0);
+    let tmpr = -45.0 + 175.0 * (u16::from_be_bytes([data[0], data[1]]) as f32 / 65535.0);
+    let humi = -6.0 + 125.0 * (u16::from_be_bytes([data[3], data[4]]) as f32 / 65535.0);
     Ok(SensorData { tmpr, humi })
 }
 
@@ -31,7 +31,7 @@ where
             Ok(data) => return Ok(data),
             Err(Sht40Error::I2cError(e)) => {
                 defmt::info!("retrying... {}/5 for error: {:?}", i, Debug2Format(&e));
-                T::delay(5.millis()).await
+                T::delay(10.millis()).await
             },
             Err(e) => return Err(e),
         }
